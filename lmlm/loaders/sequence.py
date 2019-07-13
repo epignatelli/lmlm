@@ -10,31 +10,30 @@ from Engine import Compute
 from Engine import Query
 from datasets.subset import Subset
 import time
+import matplotlib.pyplot as plt
+import random as rn
 
 
-class Sequence(object):
+class DataSequence(object):
     def __init__(self,
                  directory,
                  locations,
                  crop_box,
-                 host="127.0.0.1",
+                 mongo_collection=None,
                  mean=None,
-                 fps=1000):
+                 fps=1):
 
         self.directory = directory
         self.locations = locations
         self.crop_box = crop_box
-        self.host = host
         self.fps = fps
 
         self.frames = self.get_frames(directory)
 
-        self.database = self.get_database()
-
-        self.mean = self.try_get_mean(mean)
-
-        print("Example batch")
-        print(self.get_batch(0))
+        self.set_collection(mongo_collection)
+        self.set_mean(mean)
+        
+        self.print_random()
         return
 
     # ********************************************** #
@@ -62,29 +61,60 @@ class Sequence(object):
 
     # ********************************************** #
 
+    def get_batch(self, idx):
+        start = time.time()
+        print("Fetching batch %s" % idx, end="\r")
+        frame = self.frames[idx]
+        size = self.mean.shape if self.mean else None
+        people_dic = Compute.extract.people(frame,
+                                            self.locations,
+                                            self.crop_box,
+                                            size=size)
+        people_img, people_loc = people_dic["array"], people_dic["locations"]
+        people_img = np.stack(people_img)
+        people_img = self.normalise(people_img)
+        if self.mongo_collection is not None:
+            self.mongo_collection.insert_one(self.to_mongo(idx))
+        print("Fetched in %4f" % (time.time() - start), end="\r")
+        return people_img, people_loc
+
+    # ********************************************** #
+
     def get_input_size(self):
-        return (self.crop_box[1] - self.crop_box[0], self.crop_box[3] - self.crop_box[2])
+        return (self.crop_box[1] - self.crop_box[0], self.crop_box[3] - self.crop_box[2], 3)
 
     # ********************************************** #
 
-    def try_get_mean(self, mean=None):
-        if mean is not None:
-            mean = np.expand_dims(mean, 0)
-        try:
-            collection = pymongo.MongoClient()["safestanding"]["statistics"]
-            mean = collection.find().sort("date", -1)[0]["mean"]
-            mean = np.array(mean)
-        except:
-            traceback.print_exc()
-            mean = None
-        return np.expand_dims(mean, 0)
+    def set_mean(self, mean=None):
+        if mean is None:
+            try:
+                collection = pymongo.MongoClient()["safestanding"]["statistics"]
+                mean = collection.find().sort("date", -1)[0]["mean"]
+                mean = np.array(mean)
+            except:
+                self.mean = None
+                traceback.print_exc()
+                return
+        self.mean = np.swapaxes(mean, 0, 1)
+        return
 
     # ********************************************** #
 
-    def get_database(self):
-        stadium, match, camera = Path(self.directory).parts[-4:-1]
-        collection_name = "_".join([stadium, match, camera])
-        return pymongo.MongoClient(self.host)["safestanding"][collection_name]
+    def set_collection(self, mongo_collection):
+        if mongo_collection is "auto":
+            stadium, match, camera = Path(self.directory).parts[-4:-1]
+            collection_name = "_".join([stadium, match, camera])
+            i = 1
+            db = pymongo.MongoClient()["safestanding_data"]
+            while db[collection_name].count() > 0:
+                collection_name = collection_name + str(i)
+                i += 1
+            self.mongo_collection = db[collection_name]
+        elif mongo_collection == "test":
+            self.mongo_collection = pymongo.MongoClient()["development"]["test"]
+        else:
+            self.mongo_collection = mongo_collection
+        return
 
     # ********************************************** #
 
@@ -92,20 +122,6 @@ class Sequence(object):
         if self.frames:
             self.mean = Query.stats.mean(self.frames, self.get_input_size())
         return
-
-    # ********************************************** #
-
-    def get_batch(self, idx):
-        start = time.time()
-        print("Fetching batch %s" % idx, end="\r")
-        frame = self.frames[idx]
-        people_img = Compute.extract.people(frame, self.locations, self.crop_box)
-        people_img = np.stack(people_img)
-        people_img = np.swapaxes(people_img, 1, 2)
-        people_img = self.normalise(people_img)
-        self.database.insert_one(self.to_mongo(idx))
-        print("Fetched in %4f" % (time.time() - start), end="\r")
-        return people_img, None
 
     # ********************************************** #
 
@@ -127,7 +143,15 @@ class Sequence(object):
         return sample / 255
 
     # ********************************************** #
+    
+    def unnormalise(self, sample):
+        sample = sample * 255
+        if self.mean is not None:
+            sample = sample + self.mean
+        return sample
 
+    # ********************************************** #
+    
     def split(self, val_perc=0.2, test_perc=0.1):
         val_perc = int(len(self) * val_perc)
         test_perc = int(len(self) * test_perc)
@@ -163,10 +187,22 @@ class Sequence(object):
         return {
                 "frame": idx,
                 "box": self.crop_box,
-                "path": self.directory[idx],
+                "path": self.frames[idx],
                 "locations": self.locations,
         }
 
+    # ********************************************** #
+    
+    def print_random(self):
+        idx = rn.randint(0, len(self))
+        sample = self.get_batch(idx)[0]
+        idx_b = rn.randint(0, len(sample))
+        print("Example batch: [%d][%d]" % (idx, idx_b))
+        sample = sample[idx_b]
+        print(sample)
+        plt.imshow(self.unnormalise(sample).astype("int32"))
+        return
+    
     # ********************************************** #
 
     @staticmethod
