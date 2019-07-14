@@ -10,7 +10,7 @@ class AbstractDataset(ABC):
     Defines the abstract constructor that can be used in the implemented classes
     Note that you cannot create an instance of AbstracDataset
     '''
-    def __init__(self, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.samples = kwargs.get("samples") or self.samples()
         self.samples = kwargs.get("transform", None)
 
