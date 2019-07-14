@@ -15,7 +15,7 @@ class AbstractDataset(ABC):
         self.samples = kwargs.get("transform", None)
 
         for key, value in kwargs.items():
-            if getattr(self, key) is None:  # add prohibited keys - UX and security flaws
+            if key not in self.__dict__:  # add prohibited keys - UX and security flaws
                 setattr(self, key, value)
         return
 
