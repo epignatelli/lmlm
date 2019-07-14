@@ -12,9 +12,10 @@ class AbstractDataset(ABC):
     '''
     def __init__(self, **kwargs):
         self.samples = kwargs.get("samples") or self.samples()
+        self.samples = kwargs.get("transform") or self.samples()
 
         for key, value in kwargs.items():
-            if key != "samples":  # add prohibited keys - UX and security flaws
+            if getattr(self, key) is None:  # add prohibited keys - UX and security flaws
                 setattr(self, key, value)
         return
 
