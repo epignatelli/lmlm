@@ -13,9 +13,9 @@ class AbstractDataset(ABC):
     def __init__(self, **kwargs):
         self.samples = kwargs.get("samples") or self.samples()
 
-        for k, v in kwargs.items():
-            if k != "samples":
-                self.k = v
+        for key, value in kwargs.items():
+            if key != "samples":  # add prohibited keys - UX and security flaws
+                setattr(self, key, value)
         return
 
     # Override methods
