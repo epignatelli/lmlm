@@ -1,3 +1,3 @@
-import data
-import loaders
-import transform
+from . import data
+from . import loaders
+from . import transform
