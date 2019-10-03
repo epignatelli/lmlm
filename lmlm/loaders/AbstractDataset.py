@@ -11,8 +11,9 @@ class AbstractDataset(ABC):
     Note that you cannot create an instance of AbstracDataset
     '''
     def __init__(self, *args, **kwargs):
-        self.samples = kwargs.get("samples") or self.samples()
         self.transform = kwargs.get("transform", None)
+        samples = kwargs.get("samples", None)
+        self.samples = samples if samples is not None else self.__getsamples__()
 
         for key, value in kwargs.items():
             if key not in self.__dict__:  # add prohibited keys - UX and security flaws
@@ -21,20 +22,6 @@ class AbstractDataset(ABC):
 
     # Override methods
     # ---
-    def __getitem__(self, i):
-        """
-        Reading samples on the fly can be a heavy task, so be careful with this.
-        If yo uexpect the read_sample method to be computationally expensive,
-        you can consider using lmlm.data.AbstractQueue to asynchroneously prefetch your data
-        """
-        point = self.read_sample(self.samples[i])
-        if self.transform:
-            point = self.transform(point)
-
-        # at this point, we are assuming that `getattr(point, "input") and getattr(point ,"output") == True`
-        # which means that either self.samples[i] or read_sample(self.samples[i]) have those properties
-        return (point.input, point.output)
-
     def __len__(self):
         """
         The default implementation returns len(self.samples)
@@ -44,7 +31,23 @@ class AbstractDataset(ABC):
     # Abstract methods
     # ---
     @abstractmethod
-    def samples(self, *args, **kwargs):
+    def __getitem__(self, i):
+        """
+        Reading samples on the fly can be a heavy task, so be careful with this.
+        If yo uexpect the read_sample method to be computationally expensive,
+        you can consider using lmlm.data.AbstractQueue to asynchroneously prefetch your data.
+        Also, consider overriding and making use of the read_sample method
+        """
+        point = self.read_sample(self.samples[i])
+        if self.transform:
+            point = self.transform(point)
+
+        # at this point, we are assuming that `getattr(point, "input") and getattr(point ,"output") == True`
+        # which means that either self.samples[i] or read_sample(self.samples[i]) have those properties
+        return (point.input, point.output)
+
+    @abstractmethod
+    def __getsamples__(self, *args, **kwargs):
         """
         Returns a list of objects that are processed by the read_sample method.
         The implementation of this method is mandatory
@@ -62,7 +65,7 @@ class AbstractDataset(ABC):
         and that its values has a property "shape"
         """
         if self.samples and len(self.samples) > 0:
-            return self.samples[0].input.shape
+            return self[0][0].input.shape
 
     # Compute methods
     # ---
